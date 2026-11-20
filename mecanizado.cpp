@@ -8,8 +8,8 @@
  *  Aislamiento v3: offset(unión) = unión(offsets).
  *  Por cada pasada se expande cada figura de la pista, se extrae la
  *  frontera exterior de la unión (recortada contra las zonas prohibidas
- *  de las demás pistas), se encadena en caminos continuos, se sueldan los
- *  huecos numéricos y cada camino se fresa de una vez. Entre caminos la
+ *  de las demás pistas), se encadena en caminos continuos, se sueldan
+ *  los huecos numéricos y cada camino se fresa de una vez. Entre caminos la
  *  fresa viaja con Z arriba en línea recta: no hay que esquivar cobre.
  *
  *  Las tapas de las cápsulas se generan sobre una rejilla angular global,
@@ -717,9 +717,6 @@ static std::vector<std::vector<Figura>> agruparFiguras(const gerber::GerberResul
 				anadirHueco(p.asRegion().outline);
 			}
 			continue;
-		}
-		if (soloIslas && (p.type == gerber::PrimType::Segment || p.type == gerber::PrimType::Arc)) {
-			continue;   // las pistas no son islas
 		}
 		if (p.type == gerber::PrimType::Segment) {
 			const auto &s = p.asSegment();
