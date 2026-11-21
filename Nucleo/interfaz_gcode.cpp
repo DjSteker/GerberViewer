@@ -1,4 +1,3 @@
-
 /*
  * Nucleo/interfaz_gcode.cpp
  *
@@ -137,17 +136,23 @@ struct Tarea {
 
 unsigned generacionActual = 0;
 guint temporizador = 0;
+bool calculando = false;
+bool hayPendiente = false;
+ModoCalculo modoPendiente = ModoCalculo::Seleccion;
+
 
 void hiloCalculo(GTask *task, gpointer, gpointer datos, GCancellable*) {
 	Tarea *t = static_cast<Tarea*>(datos);
 	switch (t->modo) {
 	case ModoCalculo::PerfilCobre:
-		//t->salida = construirTrayectoriaPerfilado(t->res, t->cfg, t->huelgo, t->pasadas, false);   // todo el cobre
-		t->salida = construirTrayectoriaPerfilado(t->res, t->cfg, t->huelgo, t->pasadas, false);   // todo el cobre
+		// Limpieza global de las zonas sin cobre.
+		t->salida = construirTrayectoriaPerfilado(t->res, t->cfg, t->huelgo, t->pasadas, false);
 		break;
 	case ModoCalculo::Islas:
-		//t->salida = construirTrayectoriaPerfilado(t->res, t->cfg, t->huelgo, t->pasadas, true);    // solo pads y masas
-		t->salida = construirTrayectoriaPerfilado(t->res, t->cfg, t->huelgo, t->pasadas, true);    // solo pads y masas
+		// El botón renombrado "Limpieza" debe usar la misma unión global de cobre
+		// y las pasadas concéntricas de construirLimpieza; no perfilar cada isla
+		// hacia dentro de forma independiente.
+		t->salida = construirTrayectoriaPerfilado(t->res, t->cfg, t->huelgo, t->pasadas, false);
 		break;
 	case ModoCalculo::AislamientoCorregido:
 		t->salida = construirTrayectoriaAislamiento(t->res, t->cfg, t->huelgo, t->pasadas);
@@ -160,6 +165,12 @@ void hiloCalculo(GTask *task, gpointer, gpointer datos, GCancellable*) {
 }
 
 void alTerminarCalculo(GObject*, GAsyncResult *res, gpointer) {
+	struct AlSalir {
+		~AlSalir() {
+			calculando = false;
+			if (hayPendiente) { hayPendiente = false; lanzarCalculo(modoPendiente); }
+		}
+	} alSalir;
 	Tarea *t = static_cast<Tarea*>(g_task_get_task_data(G_TASK(res)));
 	if (!t || t->generacion != generacionActual) {
 		return;   // llegó tarde: ya hay un cálculo más reciente en marcha
@@ -210,6 +221,8 @@ void lanzarCalculo(ModoCalculo modo) {
 		establecerEstado("No hay archivo Gerber cargado.");
 		return;
 	}
+	if (calculando) { hayPendiente = true; modoPendiente = modo; return; }
+	calculando = true;
 	auto *t = new Tarea { modo, estado->resultado, leerConfigGCode(), gtk_check_button_get_active(estado->chkAislamiento) != FALSE, gtk_spin_button_get_value(estado->spinHuelgo),
 			estado->spinPasadas ? (int) gtk_spin_button_get_value(estado->spinPasadas) : 3, ++generacionActual, { } };
 	establecerEstado("Calculando trayectoria...");
@@ -256,7 +269,7 @@ static std::string tituloTrayectoria() {
 		return "Perfilado de cobre";
 	}
 	if (estado->mostrarPerfiladoIslas) {
-		return "Perfilado de islas";
+		return "Limpieza";
 	}
 	return "Aislamiento";
 }
