@@ -8,8 +8,8 @@
  *  Aislamiento v3: offset(unión) = unión(offsets).
  *  Por cada pasada se expande cada figura de la pista, se extrae la
  *  frontera exterior de la unión (recortada contra las zonas prohibidas
- *  de las demás pistas), se encadena en caminos continuos, se sueldan
- *  los huecos numéricos y cada camino se fresa de una vez. Entre caminos la
+ *  de las demás pistas), se encadena en caminos continuos, se sueldan los
+ *  huecos numéricos y cada camino se fresa de una vez. Entre caminos la
  *  fresa viaja con Z arriba en línea recta: no hay que esquivar cobre.
  *
  *  Las tapas de las cápsulas se generan sobre una rejilla angular global,
@@ -682,7 +682,7 @@ static void rawDeFigura(const Figura &f, double d, std::vector<Poligono> &out) {
 }
 
 // Primitivas -> figuras -> pistas/islas (Union-Find)
-static std::vector<std::vector<Figura>> agruparFiguras(const gerber::GerberResult &res, double tolConexion, bool soloIslas = false) {
+static std::vector<Figura> crearFiguras(const gerber::GerberResult &res, bool soloIslas) {
 	std::vector<Figura> figs;
 	std::vector<size_t> regiones;   // índices de figuras polígono (para recibir huecos Clear)
 
@@ -718,6 +718,9 @@ static std::vector<std::vector<Figura>> agruparFiguras(const gerber::GerberResul
 			}
 			continue;
 		}
+		if (soloIslas && (p.type == gerber::PrimType::Segment || p.type == gerber::PrimType::Arc)) {
+			continue;   // las pistas no son islas
+		}
 		if (p.type == gerber::PrimType::Segment) {
 			const auto &s = p.asSegment();
 			figs.push_back(nuevaCapsula(s.start, s.end, (s.width > 0 ? s.width : 0.08) * 0.5));
@@ -751,6 +754,12 @@ static std::vector<std::vector<Figura>> agruparFiguras(const gerber::GerberResul
 		}
 	}
 
+	return figs;
+}
+
+// Primitivas -> figuras -> pistas/islas (Union-Find)
+static std::vector<std::vector<Figura>> agruparFiguras(const gerber::GerberResult &res, double tolConexion, bool soloIslas = false) {
+	std::vector<Figura> figs = crearFiguras(res, soloIslas);
 	const size_t m = figs.size();
 	std::vector<std::vector<Figura>> grupos;
 	if (m == 0) {
@@ -833,6 +842,71 @@ static std::vector<std::vector<Figura>> agruparFiguras(const gerber::GerberResul
 //   curva cruda, esta última solo para trocear
 // ─────────────────────────────────────────────────────────────
 
+// Rejilla uniforme de cajas: evita comparar cada borde con todas las figuras
+struct Rejilla {
+	double x0 = 0.0, y0 = 0.0, cel = 1.0;
+	int nx = 1, ny = 1;
+	std::vector<std::vector<int>> celdas;
+
+	void construir(const std::vector<Caja> &cajas, double celdaDeseada) {
+		celdas.clear();
+		Caja t { 1e300, 1e300, -1e300, -1e300 };
+		for (const auto &c : cajas) {
+			t.x0 = std::min(t.x0, c.x0);
+			t.y0 = std::min(t.y0, c.y0);
+			t.x1 = std::max(t.x1, c.x1);
+			t.y1 = std::max(t.y1, c.y1);
+		}
+		if (cajas.empty()) {
+			x0 = y0 = 0.0;
+			nx = ny = 1;
+			celdas.assign(1, { });
+			return;
+		}
+		cel = std::max(celdaDeseada, 1e-3);
+		while (((t.x1 - t.x0) / cel + 1.0) * ((t.y1 - t.y0) / cel + 1.0) > 2e6) {
+			cel *= 2.0;
+		}
+		x0 = t.x0;
+		y0 = t.y0;
+		nx = (int) ((t.x1 - t.x0) / cel) + 1;
+		ny = (int) ((t.y1 - t.y0) / cel) + 1;
+		celdas.assign((size_t) nx * ny, { });
+		for (size_t i = 0; i < cajas.size(); ++i) {
+			for (int j = iy(cajas[i].y0); j <= iy(cajas[i].y1); ++j) {
+				for (int k = ix(cajas[i].x0); k <= ix(cajas[i].x1); ++k) {
+					celdas[(size_t) j * nx + k].push_back((int) i);
+				}
+			}
+		}
+	}
+	int ix(double x) const {
+		return std::clamp((int) std::floor((x - x0) / cel), 0, nx - 1);
+	}
+	int iy(double y) const {
+		return std::clamp((int) std::floor((y - y0) / cel), 0, ny - 1);
+	}
+	// Llama a f(i) por cada caja candidata (pueden repetirse)
+	template<class F>
+	void consultar(const Caja &c, F &&f) const {
+		for (int j = iy(c.y0); j <= iy(c.y1); ++j) {
+			for (int k = ix(c.x0); k <= ix(c.x1); ++k) {
+				for (int i : celdas[(size_t) j * nx + k]) {
+					f(i);
+				}
+			}
+		}
+	}
+};
+
+static double celdaPara(const std::vector<Caja> &cajas) {
+	double s = 0.0;
+	for (const auto &c : cajas) {
+		s += std::max(c.x1 - c.x0, c.y1 - c.y0);
+	}
+	return cajas.empty() ? 1.0 : std::clamp(2.0 * s / cajas.size(), 0.3, 5.0);
+}
+
 struct ProhFig {
 	const Figura *f;
 	const std::vector<Poligono> *zona;   // curva cruda de la figura a distancia base
@@ -853,7 +927,8 @@ struct RawForma {
 	bool convexo;    // cápsula: no necesita autointersecciones
 };
 
-static std::vector<Poligono> fronteraUnionSD(const std::vector<RawForma> &raw, const std::vector<const Figura*> &figs, double d, double eps, const std::vector<ProhFig> &proh, double dProh) {
+static std::vector<Poligono> fronteraUnionSD(const std::vector<RawForma> &raw, const std::vector<const Figura*> &figs, double d, double eps, const std::vector<ProhFig> &proh, double dProh,
+		const Caja *limite = nullptr) {
 	std::vector<const Poligono*> prohRaw;
 	for (const auto &z : proh) {
 		for (const auto &p : *z.zona) {
@@ -885,6 +960,13 @@ static std::vector<Poligono> fronteraUnionSD(const std::vector<RawForma> &raw, c
 	for (size_t k = 0; k < proh.size(); ++k) {
 		cpf[k] = expandirCaja(proh[k].f->caja, dProh + eps);
 	}
+	Rejilla gRaw, gFig, gProh, gProhRaw;
+	gRaw.construir(cr, celdaPara(cr));
+	gFig.construir(cfg, celdaPara(cfg));
+	gProh.construir(cpf, celdaPara(cpf));
+	gProhRaw.construir(cp, celdaPara(cp));
+	std::vector<unsigned> marcaRaw(R, 0), marcaProhRaw(prohRaw.size(), 0);
+	unsigned sello = 0;
 
 	auto cortes = [](const gerber::Vec2 &a, const gerber::Vec2 &b, const Caja &ce, const Poligono &q, std::vector<double> &ts) {
 		for (size_t k = 0, m = q.size(); k < m; ++k) {
@@ -901,35 +983,44 @@ static std::vector<Poligono> fronteraUnionSD(const std::vector<RawForma> &raw, c
 
 	// ¿El punto m (de la curva de la figura fi) está en la frontera de la unión?
 	auto valida = [&](const gerber::Vec2 &m, size_t fi) -> bool {
-		for (size_t g = 0; g < figs.size(); ++g) {
-			if (!puntoEnCaja(cfg[g], m)) {
-				continue;
+		if (limite && !puntoEnCaja(*limite, m)) {
+			return false;
+		}
+		bool ok = true;
+		const Caja punto { m.x, m.y, m.x, m.y };
+		gFig.consultar(punto, [&](int gi) {
+			const size_t g = (size_t) gi;
+			if (!ok || !puntoEnCaja(cfg[g], m)) {
+				return;
 			}
 			if (figs[g]->capsula) {
 				if (g == fi) {
-					continue;
+					return;
 				}
 				const Poligono &Q = raw[capRaw[g]].p;       // cápsula: se compara con su polígono
 				if (!puntoEnCaja(cr[capRaw[g]], m)) {
-					continue;
+					return;
 				}
 				if (dist2Borde(m, Q) <= 1e-12) {
 					if (g < fi) {
-						return false;                       // arista coincidente: manda la de menor índice
+						ok = false;                         // arista coincidente: manda la de menor índice
 					}
 				} else if (pip(m, Q)) {
-					return false;
+					ok = false;
 				}
 			} else if (sdFigura(*figs[g], m) < d - eps) {
-				return false;                               // polígono/masa: distancia exacta
+				ok = false;                                 // polígono/masa: distancia exacta
 			}
+		});
+		if (!ok) {
+			return false;
 		}
-		for (size_t k = 0; k < proh.size(); ++k) {
-			if (puntoEnCaja(cpf[k], m) && dentroZona(proh[k], m, dProh, eps)) {
-				return false;                               // invade el cobre de otra pista
+		gProh.consultar(punto, [&](int k) {
+			if (ok && puntoEnCaja(cpf[(size_t) k], m) && dentroZona(proh[(size_t) k], m, dProh, eps)) {
+				ok = false;                                 // invade el cobre de otra pista
 			}
-		}
-		return true;
+		});
+		return ok;
 	};
 
 	// 1) Trocear cada borde por todos sus cruces y quedarse con los trozos válidos
@@ -944,11 +1035,15 @@ static std::vector<Poligono> fronteraUnionSD(const std::vector<RawForma> &raw, c
 			const Caja ce { std::min(a.x, b.x), std::min(a.y, b.y), std::max(a.x, b.x), std::max(a.y, b.y) };
 
 			std::vector<double> ts { 0.0, 1.0 };
-			for (size_t j = 0; j < R; ++j) {
-				if (j != i && cajasSolapan(ce, cr[j])) {
-					cortes(a, b, ce, raw[j].p, ts);
+			++sello;
+			gRaw.consultar(ce, [&](int j) {
+				if ((size_t) j != i && marcaRaw[(size_t) j] != sello) {
+					marcaRaw[(size_t) j] = sello;
+					if (cajasSolapan(ce, cr[(size_t) j])) {
+						cortes(a, b, ce, raw[(size_t) j].p, ts);
+					}
 				}
-			}
+			});
 			if (!raw[i].convexo) {                   // autointersecciones (cóncavos, huecos, cortes finos)
 				for (size_t k = 0; k < n; ++k) {
 					if (k == e || k == (e + 1) % n || (k + 1) % n == e) {
@@ -964,9 +1059,28 @@ static std::vector<Poligono> fronteraUnionSD(const std::vector<RawForma> &raw, c
 					}
 				}
 			}
-			for (size_t k = 0; k < prohRaw.size(); ++k) {
-				if (cajasSolapan(ce, cp[k])) {
-					cortes(a, b, ce, *prohRaw[k], ts);
+			++sello;
+			gProhRaw.consultar(ce, [&](int k) {
+				if (marcaProhRaw[(size_t) k] != sello) {
+					marcaProhRaw[(size_t) k] = sello;
+					if (cajasSolapan(ce, cp[(size_t) k])) {
+						cortes(a, b, ce, *prohRaw[(size_t) k], ts);
+					}
+				}
+			});
+			if (limite) {                                // el recorte contra el borde de la zona de trabajo
+				const double dx = b.x - a.x, dy = b.y - a.y;
+				for (double X : { limite->x0, limite->x1 }) {
+					const double t = (std::abs(dx) > 1e-12) ? (X - a.x) / dx : -1.0;
+					if (t > 1e-9 && t < 1.0 - 1e-9) {
+						ts.push_back(t);
+					}
+				}
+				for (double Y : { limite->y0, limite->y1 }) {
+					const double t = (std::abs(dy) > 1e-12) ? (Y - a.y) / dy : -1.0;
+					if (t > 1e-9 && t < 1.0 - 1e-9) {
+						ts.push_back(t);
+					}
 				}
 			}
 			std::sort(ts.begin(), ts.end());
@@ -1469,8 +1583,126 @@ std::vector<MovimientoHerramienta> construirTrayectoriaAislamiento(const gerber:
 }
 
 // ─────────────────────────────────────────────────────────────
+// construirLimpieza ("Perfilar Cobre")
+//   Limpia la zona SIN cobre: pasadas concéntricas HACIA FUERA de todo el cobre,
+//   desde la línea de aislamiento, hasta que las pasadas de pistas vecinas se
+//   encuentran. Se mide contra TODO el cobre a la vez (no pista a pista) y se
+//   recorta al área del Gerber: la fresa nunca pisa cobre ni sale de la placa.
+// ─────────────────────────────────────────────────────────────
+
+static std::vector<MovimientoHerramienta> construirLimpieza(const gerber::GerberResult &res, const gerber::GCodeConfig &cfg, double huelgo, int maxPasadas) {
+	std::vector<MovimientoHerramienta> movimientos;
+	const double e0 = cfg.toolDiameter * 0.5 + huelgo;
+	const double paso = std::max(cfg.toolDiameter * 0.35, 1e-3);
+	if (maxPasadas < 1) {
+		maxPasadas = 1;
+	}
+
+	std::vector<Figura> figs = crearFiguras(res, false);
+	if (figs.empty()) {
+		return movimientos;
+	}
+	std::vector<const Figura*> ptrs;
+	Caja lim { 1e300, 1e300, -1e300, -1e300 };
+	double rMax = 0.0;
+	for (const auto &f : figs) {
+		ptrs.push_back(&f);
+		lim.x0 = std::min(lim.x0, f.caja.x0);
+		lim.y0 = std::min(lim.y0, f.caja.y0);
+		lim.x1 = std::max(lim.x1, f.caja.x1);
+		lim.y1 = std::max(lim.y1, f.caja.y1);
+		if (f.capsula) {
+			rMax = std::max(rMax, f.r);
+		}
+	}
+	if (res.bounds.valid) {
+		lim = Caja { res.bounds.minX, res.bounds.minY, res.bounds.maxX, res.bounds.maxY };   // área de la placa
+	}
+	const double eps = 1e-3 + 0.0025 * (rMax + e0 + maxPasadas * paso);
+
+	auto esCerrado = [](const Poligono &p) {
+		return p.size() > 3 && d2(p.front(), p.back()) < 1e-12;
+	};
+	auto longitud = [](const Poligono &p) {
+		double l = 0.0;
+		for (size_t k = 1; k < p.size(); ++k) {
+			l += std::sqrt(d2(p[k - 1], p[k]));
+		}
+		return l;
+	};
+
+	std::vector<Tramo> tramos;
+	for (int k = 0; k < maxPasadas; ++k) {
+		const double d = e0 + k * paso;
+		std::vector<RawForma> raw;
+		for (size_t i = 0; i < figs.size(); ++i) {
+			std::vector<Poligono> polys;
+			rawDeFigura(figs[i], d, polys);
+			for (auto &p : polys) {
+				raw.push_back( { std::move(p), i, figs[i].capsula });
+			}
+		}
+		std::vector<Poligono> caminos = fronteraUnionSD(raw, ptrs, d, eps, { }, 0.0, &lim);
+		caminos.erase(std::remove_if(caminos.begin(), caminos.end(), [&](const Poligono &p) {
+			return longitud(p) < std::max(0.02, 0.5 * cfg.toolDiameter);
+		}), caminos.end());
+		if (caminos.empty()) {
+			break;                       // ya no queda zona por limpiar
+		}
+		for (auto &c : caminos) {
+			Tramo t;
+			t.cerrado = esCerrado(c);
+			t.caja = cajaDe(c);
+			t.p = std::move(c);
+			tramos.push_back(std::move(t));
+		}
+	}
+
+	// Puente con la fresa abajo: dentro de la placa y a >= e0 de todo el cobre
+	std::vector<Caja> cajasExp;
+	for (const auto &f : figs) {
+		cajasExp.push_back(expandirCaja(f.caja, e0 + eps));
+	}
+	Rejilla gCobre;
+	gCobre.construir(cajasExp, celdaPara(cajasExp));
+	auto puenteSeguro = [&](const gerber::Vec2 &a, const gerber::Vec2 &b) {
+		const int n = std::max(1, (int) std::ceil(std::sqrt(d2(a, b)) / 0.05));
+		for (int i = 0; i <= n; ++i) {
+			const double t = (double) i / n;
+			const gerber::Vec2 p { a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t };
+			if (!puntoEnCaja(lim, p)) {
+				return false;
+			}
+			bool libre = true;
+			gCobre.consultar(Caja { p.x, p.y, p.x, p.y }, [&](int g) {
+				if (libre && puntoEnCaja(cajasExp[(size_t) g], p) && sdFigura(figs[(size_t) g], p) < e0 - eps) {
+					libre = false;
+				}
+			});
+			if (!libre) {
+				return false;
+			}
+		}
+		return true;
+	};
+
+	const gerber::Vec2 origen { 0, 0 };
+	gerber::Vec2 actual = origen;
+	bool abajo = false;
+	rutaTramos(tramos, movimientos, actual, abajo, std::max(2.0 * cfg.toolDiameter, 0.2), puenteSeguro);
+	if (abajo) {
+		movimientos.push_back( { TipoMovimiento::Subir, actual, actual });
+	}
+	if (d2(actual, origen) > 1e-6) {
+		movimientos.push_back( { TipoMovimiento::Viaje, actual, origen });
+	}
+	return movimientos;
+}
+
+// ─────────────────────────────────────────────────────────────
 // construirTrayectoriaPerfilado
-//   Pasadas concéntricas HACIA DENTRO del cobre (pistas, pads, masas, islas).
+//   soloIslas = false: limpieza de la zona SIN cobre (ver construirLimpieza).
+//   soloIslas = true: pasadas concéntricas HACIA DENTRO de pads y masas (islas).
 //   1) contorno de la unión de las figuras de cada grupo (con sus huecos)
 //   2) offset interior de ese contorno, recortado por distancia: nunca se
 //      sale del cobre ni cruza entre figuras solapadas
@@ -1481,6 +1713,9 @@ std::vector<MovimientoHerramienta> construirTrayectoriaPerfilado(const gerber::G
 	std::vector<MovimientoHerramienta> movimientos;
 	if (!res.ok) {
 		return movimientos;
+	}
+	if (!soloIslas) {
+		return construirLimpieza(res, cfg, huelgo, maxPasadas);   // "Perfilar Cobre": limpia la zona sin cobre
 	}
 	const double e0 = cfg.toolDiameter * 0.5 + huelgo;
 	const double paso = std::max(cfg.toolDiameter * 0.35, 1e-3);
