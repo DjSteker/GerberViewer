@@ -151,14 +151,14 @@ struct BBox {
 	 * @note    La primera llamada marca la caja como válida.
 	 */
 	void expand(double x, double y) {
-		if (x < minX)
-			minX = x;
-		if (x > maxX)
-			maxX = x;
-		if (y < minY)
-			minY = y;
-		if (y > maxY)
-			maxY = y;
+		if (x < minX) {
+			minX = x;}
+		if (x > maxX) {
+			maxX = x;}
+		if (y < minY) {
+			minY = y;}
+		if (y > maxY) {
+			maxY = y;}
 		valid = true;
 	}
 
