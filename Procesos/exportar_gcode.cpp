@@ -66,7 +66,7 @@ std::vector<Vec2> simplificar(const std::vector<Vec2> &p, double tol) {
 			pila.push_back( { k, j });
 		}
 	}
-	std::vector < Vec2 > out;
+	std::vector<Vec2> out;
 	for (size_t i = 0; i < n; ++i) {
 		if (keep[i]) {
 			out.push_back(p[i]);
@@ -193,7 +193,7 @@ public:
 	// Corte a lo largo de una polilínea (la fresa ya está abajo en pts[0])
 	void polilinea(const std::vector<Vec2> &pts) {
 		size_t i = 0;
-		std::vector < Vec2 > tramo { pts[0] };
+		std::vector<Vec2> tramo { pts[0] };
 		auto volcar = [&]() {
 			const std::vector<Vec2> s = simplificar(tramo, o_.tolerancia);
 			for (size_t k = 1; k < s.size(); ++k) {
@@ -280,7 +280,7 @@ private:
 
 }  // namespace
 
-std::string generarGCodeTrayectoria(const std::vector<MovimientoHerramienta> &mov, const OpcionesGCode &op, EstadisticasGCode *est) {
+std::string ExportarGcode::generarGCodeTrayectoria(const std::vector<MovimientoHerramienta> &mov, const OpcionesGCode &op, EstadisticasGCode *est) {
 	Escritor w(op);
 	w.cabecera();
 
@@ -311,7 +311,7 @@ std::string generarGCodeTrayectoria(const std::vector<MovimientoHerramienta> &mo
 			break;
 		}
 		case TipoMovimiento::Corte: {
-			std::vector < Vec2 > pts { op.tr.aplicar(m.desde) };
+			std::vector<Vec2> pts { op.tr.aplicar(m.desde) };
 			while (i < n && mov[i].tipo == TipoMovimiento::Corte && (pts.size() == 1 || dist(op.tr.aplicar(mov[i].desde), pts.back()) < 1e-6)) {
 				pts.push_back(op.tr.aplicar(mov[i].hasta));
 				++i;
@@ -330,7 +330,7 @@ std::string generarGCodeTrayectoria(const std::vector<MovimientoHerramienta> &mo
 	return w.texto;
 }
 
-std::string generarGCodeTaladroT(const drill::DrillResult &res, const OpcionesGCode &op, double peck) {
+std::string ExportarGcode::generarGCodeTaladroT(const drill::DrillResult &res, const OpcionesGCode &op, double peck) {
 	Escritor w(op);
 	if (!res.ok || res.operations.empty()) {
 		return "; Error: No hay operaciones de taladrado\nM30\n";
@@ -412,3 +412,4 @@ std::string generarGCodeTaladroT(const drill::DrillResult &res, const OpcionesGC
 	t.pie();
 	return t.texto;
 }
+
