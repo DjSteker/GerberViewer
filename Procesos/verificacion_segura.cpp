@@ -13,7 +13,7 @@ namespace gerber {
 namespace verificacion {
 
 // Función auxiliar interna para cálculos de distancia
-double distanciaPuntoSegmento(const Vec2 &punto, const Vec2 &inicio, const Vec2 &fin) {
+double VerificacionSegura::distanciaPuntoSegmento(const Vec2 &punto, const Vec2 &inicio, const Vec2 &fin) {
 	Vec2 vectorSegmento = { fin.x - inicio.x, fin.y - inicio.y };
 	Vec2 vectorPuntoInicio = { punto.x - inicio.x, punto.y - inicio.y };
 
@@ -33,7 +33,7 @@ double distanciaPuntoSegmento(const Vec2 &punto, const Vec2 &inicio, const Vec2 
 	return std::sqrt(dx * dx + dy * dy);
 }
 
-bool puntoEnPoligono(const Vec2 &punto, const std::vector<Vec2> &poligono) {
+bool VerificacionSegura::puntoEnPoligono(const Vec2 &punto, const std::vector<Vec2> &poligono) {
 	int numVertices = static_cast<int>(poligono.size());
 	bool interior = false;
 	for (int i = 0, j = numVertices - 1; i < numVertices; j = i++) {
@@ -44,7 +44,7 @@ bool puntoEnPoligono(const Vec2 &punto, const std::vector<Vec2> &poligono) {
 	return interior;
 }
 
-double distanciaFirmaPoligono(const Vec2 &punto, const std::vector<Vec2> &poligono) {
+double VerificacionSegura::distanciaFirmaPoligono(const Vec2 &punto, const std::vector<Vec2> &poligono) {
 	double minDist = 1e18;
 	for (size_t i = 0; i < poligono.size(); ++i) {
 		size_t j = (i == 0) ? poligono.size() - 1 : i - 1;
@@ -53,7 +53,7 @@ double distanciaFirmaPoligono(const Vec2 &punto, const std::vector<Vec2> &poligo
 	return puntoEnPoligono(punto, poligono) ? -minDist : minDist;
 }
 
-double holguraAPrimitiva(const Vec2 &punto, const Primitive &primitiva) {
+double VerificacionSegura::holguraAPrimitiva(const Vec2 &punto, const Primitive &primitiva) {
 	switch (primitiva.type) {
 	case PrimType::Segment: {
 		const auto &seg = primitiva.asSegment();
@@ -76,7 +76,7 @@ double holguraAPrimitiva(const Vec2 &punto, const Primitive &primitiva) {
 	}
 }
 
-double holguraMinimaConductores(const Vec2 &punto, const GerberResult &resultado, const Primitive *excluirPrim) {
+double VerificacionSegura::holguraMinimaConductores(const Vec2 &punto, const GerberResult &resultado, const Primitive *excluirPrim) {
 	double minH = 1e18;
 	for (const auto &p : resultado.primitives) {
 		if (p.polaridad != Polarity::Dark) {
@@ -91,13 +91,13 @@ double holguraMinimaConductores(const Vec2 &punto, const GerberResult &resultado
 	return minH;
 }
 
-bool posicionHerramientaSegura(const Vec2 &centro, const GerberResult &resultado, double diametroHerramienta, double tolerancia, const Primitive *excluirPrim) {
+bool VerificacionSegura::posicionHerramientaSegura(const Vec2 &centro, const GerberResult &resultado, double diametroHerramienta, double tolerancia, const Primitive *excluirPrim) {
 	double holguraReq = (diametroHerramienta * 0.5) + tolerancia;
 	double holguraReal = holguraMinimaConductores(centro, resultado, excluirPrim);
 	return holguraReal >= holguraReq;
 }
 
-bool posicionHerramientaSeguraCirculo(const Vec2 &centro, const GerberResult &resultado, double diametroHerramienta, double tolerancia, int numMuestras, const Primitive *excluirPrim) {
+bool VerificacionSegura::posicionHerramientaSeguraCirculo(const Vec2 &centro, const GerberResult &resultado, double diametroHerramienta, double tolerancia, int numMuestras, const Primitive *excluirPrim) {
 	double radioMuestreo = (diametroHerramienta * 0.5) + tolerancia;
 
 	// 1. Verificar el centro
@@ -116,7 +116,7 @@ bool posicionHerramientaSeguraCirculo(const Vec2 &centro, const GerberResult &re
 	return true;
 }
 
-std::optional<Vec2> buscarPuntoEntradaSeguro(const Vec2 &objetivo, const GerberResult &resultado, double diametroHerramienta, double tolerancia, double radioBusqueda) {
+std::optional<Vec2> VerificacionSegura::buscarPuntoEntradaSeguro(const Vec2 &objetivo, const GerberResult &resultado, double diametroHerramienta, double tolerancia, double radioBusqueda) {
 	const int pasosAnillo = 16;
 	const int numAnillos = 5;
 
@@ -135,3 +135,4 @@ std::optional<Vec2> buscarPuntoEntradaSeguro(const Vec2 &objetivo, const GerberR
 
 }  // namespace verificacion
 }  // namespace gerber
+
