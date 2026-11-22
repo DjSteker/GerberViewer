@@ -333,3 +333,4 @@ std::vector<MovimientoIslas> DetectorIslas::generarTrayectoria(const gerber::Ger
 }
 
 }  // namespace islas
+
