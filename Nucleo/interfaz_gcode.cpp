@@ -11,7 +11,7 @@
 #include <fstream>
 #include <sstream>
 
-#include "../interfaz.h"
+#include "../Intefaces/interfaz.h"
 #include "../Procesos/exportar_gcode.hpp"
 
 // ─────────────────────────────────────────────────────────────
@@ -103,7 +103,7 @@ static Transformacion transformacionActual() {
 }
 
 static OpcionesGCode opcionesActuales(const std::string &titulo) {
-	const gerber::GCodeConfig c = leerConfigGCode();
+	const gerber::GCodeConfig c = Interfaz::leerConfigGCode();
 	OpcionesGCode o;
 	o.tr = transformacionActual();
 	o.zSeguro = c.safeZ;
@@ -140,27 +140,70 @@ bool calculando = false;
 bool hayPendiente = false;
 ModoCalculo modoPendiente = ModoCalculo::Seleccion;
 
+//void hiloCalculo(GTask *task, gpointer, gpointer datos, GCancellable*) {
+//	Tarea *t = static_cast<Tarea*>(datos);
+//	switch (t->modo) {
+//	case ModoCalculo::PerfilCobre:
+//		// Limpieza global de las zonas sin cobre.
+//		t->salida = construirTrayectoriaPerfilado(t->res, t->cfg, t->huelgo, t->pasadas, false);
+//		break;
+//	case ModoCalculo::Islas:
+//		// El botón renombrado "Limpieza" debe usar la misma unión global de cobre
+//		// y las pasadas concéntricas de construirLimpieza; no perfilar cada isla
+//		// hacia dentro de forma independiente.
+//		t->salida = construirTrayectoriaPerfilado(t->res, t->cfg, t->huelgo, t->pasadas, false);
+//		break;
+//	case ModoCalculo::AislamientoCorregido:
+//		t->salida = construirTrayectoriaAislamiento(t->res, t->cfg, t->huelgo, t->pasadas);
+//		break;
+//	case ModoCalculo::Seleccion:
+//		t->salida = t->aislamiento ? construirTrayectoriaAislamiento(t->res, t->cfg, t->huelgo, t->pasadas) : construirTrayectoria(t->res, t->cfg, false, t->huelgo);
+//		break;
+//	}
+//	g_task_return_boolean(task, TRUE);
+//}
 
+/**
+ * @brief Ejecuta el cálculo de una trayectoria en segundo plano.
+ *
+ * @param task Tarea de GLib que notificará la finalización.
+ * @param datos Puntero a la estructura Tarea con las entradas y la salida.
+ *
+ * @details
+ * Selecciona el generador según el modo solicitado y almacena
+ * los movimientos resultantes en Tarea::salida.
+ *
+ * Los generadores se invocan como métodos estáticos de Mecanizado.
+ * Esta función no actualiza los widgets de la interfaz.
+ */
 void hiloCalculo(GTask *task, gpointer, gpointer datos, GCancellable*) {
 	Tarea *t = static_cast<Tarea*>(datos);
+
 	switch (t->modo) {
 	case ModoCalculo::PerfilCobre:
 		// Limpieza global de las zonas sin cobre.
-		t->salida = construirTrayectoriaPerfilado(t->res, t->cfg, t->huelgo, t->pasadas, false);
+		t->salida = Mecanizado::construirTrayectoriaPerfilado(t->res, t->cfg, t->huelgo, t->pasadas, false);
 		break;
+
 	case ModoCalculo::Islas:
-		// El botón renombrado "Limpieza" debe usar la misma unión global de cobre
-		// y las pasadas concéntricas de construirLimpieza; no perfilar cada isla
-		// hacia dentro de forma independiente.
-		t->salida = construirTrayectoriaPerfilado(t->res, t->cfg, t->huelgo, t->pasadas, false);
+		// El botón renombrado "Limpieza" utiliza la unión global
+		// del cobre, no el perfilado interior de islas individuales.
+		t->salida = Mecanizado::construirTrayectoriaPerfilado(t->res, t->cfg, t->huelgo, t->pasadas, false);
 		break;
+
 	case ModoCalculo::AislamientoCorregido:
-		t->salida = construirTrayectoriaAislamiento(t->res, t->cfg, t->huelgo, t->pasadas);
+		t->salida = Mecanizado::construirTrayectoriaAislamiento(t->res, t->cfg, t->huelgo, t->pasadas);
 		break;
+
 	case ModoCalculo::Seleccion:
-		t->salida = t->aislamiento ? construirTrayectoriaAislamiento(t->res, t->cfg, t->huelgo, t->pasadas) : construirTrayectoria(t->res, t->cfg, false, t->huelgo);
+		if (t->aislamiento) {
+			t->salida = Mecanizado::construirTrayectoriaAislamiento(t->res, t->cfg, t->huelgo, t->pasadas);
+		} else {
+			t->salida = Mecanizado::construirTrayectoria(t->res, t->cfg, false, t->huelgo);
+		}
 		break;
 	}
+
 	g_task_return_boolean(task, TRUE);
 }
 
@@ -168,7 +211,10 @@ void alTerminarCalculo(GObject*, GAsyncResult *res, gpointer) {
 	struct AlSalir {
 		~AlSalir() {
 			calculando = false;
-			if (hayPendiente) { hayPendiente = false; lanzarCalculo(modoPendiente); }
+			if (hayPendiente) {
+				hayPendiente = false;
+				lanzarCalculo(modoPendiente);
+			}
 		}
 	} alSalir;
 	Tarea *t = static_cast<Tarea*>(g_task_get_task_data(G_TASK(res)));
@@ -192,7 +238,7 @@ void alTerminarCalculo(GObject*, GAsyncResult *res, gpointer) {
 	if (estado->etqMovimientos) {
 		gtk_label_set_text(GTK_LABEL(estado->etqMovimientos), (std::to_string(cortes) + " cortes\n" + std::to_string(rapidos) + " desplaz.").c_str());
 	}
-	establecerEstado("Trayectoria lista (" + std::to_string(estado->trayectoria.size()) + " movimientos)");
+	Interfaz::establecerEstado("Trayectoria lista (" + std::to_string(estado->trayectoria.size()) + " movimientos)");
 
 	// Se hace visible sin tocar casillas a mano (la trayectoria ya no está sucia: no se recalcula)
 	if (estado->chkMostrarTrayectoriaGerber) {
@@ -218,14 +264,18 @@ ModoCalculo modoActual() {
 
 void lanzarCalculo(ModoCalculo modo) {
 	if (!estado->tieneArchivo) {
-		establecerEstado("No hay archivo Gerber cargado.");
+		Interfaz::establecerEstado("No hay archivo Gerber cargado.");
 		return;
 	}
-	if (calculando) { hayPendiente = true; modoPendiente = modo; return; }
+	if (calculando) {
+		hayPendiente = true;
+		modoPendiente = modo;
+		return;
+	}
 	calculando = true;
-	auto *t = new Tarea { modo, estado->resultado, leerConfigGCode(), gtk_check_button_get_active(estado->chkAislamiento) != FALSE, gtk_spin_button_get_value(estado->spinHuelgo),
+	auto *t = new Tarea { modo, estado->resultado, Interfaz::leerConfigGCode(), gtk_check_button_get_active(estado->chkAislamiento) != FALSE, gtk_spin_button_get_value(estado->spinHuelgo),
 			estado->spinPasadas ? (int) gtk_spin_button_get_value(estado->spinPasadas) : 3, ++generacionActual, { } };
-	establecerEstado("Calculando trayectoria...");
+	Interfaz::establecerEstado("Calculando trayectoria...");
 	GTask *task = g_task_new(nullptr, nullptr, alTerminarCalculo, nullptr);
 	g_task_set_task_data(task, t, [](gpointer p) {
 		delete static_cast<Tarea*>(p);
@@ -278,12 +328,12 @@ static std::string tituloTrayectoria() {
 static std::string gcodeVisible(EstadisticasGCode *est) {
 	const bool esAislamiento = !estado->mostrarPerfiladoCobre && !estado->mostrarPerfiladoIslas;
 	if (estado->trayectoria.empty() || (estado->trayectoriaSucia && esAislamiento)) {
-		SeleccionTrayectoria();   // síncrono: hace falta el resultado ya
+		Interfaz::SeleccionTrayectoria();   // síncrono: hace falta el resultado ya
 	}
 	if (estado->trayectoria.empty()) {
 		return "";
 	}
-	return generarGCodeTrayectoria(estado->trayectoria, opcionesActuales(tituloTrayectoria()), est);
+	return ExportarGcode::generarGCodeTrayectoria(estado->trayectoria, opcionesActuales(tituloTrayectoria()), est);
 }
 
 static std::string resumen(const EstadisticasGCode &e) {
@@ -297,7 +347,7 @@ static void alGcodeGuardado(GObject *src, GAsyncResult *res, gpointer) {
 	GFile *file = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(src), res, &err);
 	if (!file) {
 		if (err && err->code != GTK_DIALOG_ERROR_DISMISSED) {
-			establecerEstado("Error: " + std::string(err->message));
+			Interfaz::establecerEstado("Error: " + std::string(err->message));
 		}
 		if (err) {
 			g_error_free(err);
@@ -312,14 +362,14 @@ static void alGcodeGuardado(GObject *src, GAsyncResult *res, gpointer) {
 	EstadisticasGCode est;
 	const std::string gcode = gcodeVisible(&est);
 	if (gcode.empty()) {
-		establecerEstado("No hay trayectoria que guardar.");
+		Interfaz::establecerEstado("No hay trayectoria que guardar.");
 	} else {
 		std::ofstream out(path);
 		if (out.is_open()) {
 			out << gcode;
-			establecerEstado("✓ Guardado: " + std::string(path) + " (" + resumen(est) + ")");
+			Interfaz::establecerEstado("✓ Guardado: " + std::string(path) + " (" + resumen(est) + ")");
 		} else {
-			establecerEstado("✗ No se pudo escribir: " + std::string(path));
+			Interfaz::establecerEstado("✗ No se pudo escribir: " + std::string(path));
 		}
 	}
 	g_free(path);
@@ -364,7 +414,7 @@ static std::string nombreBase(const std::string &ruta) {
 
 void alGuardarGCode(GtkButton*, gpointer) {
 	if (!estado->tieneArchivo) {
-		establecerEstado("Abra un Gerber primero.");
+		Interfaz::establecerEstado("Abra un Gerber primero.");
 		return;
 	}
 	dialogoGuardar("Guardar GCode", nombreBase(estado->rutaArchivo) + ".gcode", alGcodeGuardado);
@@ -372,13 +422,13 @@ void alGuardarGCode(GtkButton*, gpointer) {
 
 void alPrevisualizarGCode(GtkButton*, gpointer) {
 	if (!estado->tieneArchivo) {
-		establecerEstado("Sin Gerber cargado.");
+		Interfaz::establecerEstado("Sin Gerber cargado.");
 		return;
 	}
 	EstadisticasGCode est;
 	const std::string gcode = gcodeVisible(&est);
 	if (gcode.empty()) {
-		establecerEstado("No hay trayectoria que mostrar.");
+		Interfaz::establecerEstado("No hay trayectoria que mostrar.");
 		return;
 	}
 	std::istringstream iss(gcode);
@@ -427,7 +477,7 @@ static void alTaladroGuardado(GObject *src, GAsyncResult *res, gpointer) {
 	GFile *file = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(src), res, &err);
 	if (!file) {
 		if (err && err->code != GTK_DIALOG_ERROR_DISMISSED) {
-			establecerEstado("Error: " + std::string(err->message));
+			Interfaz::establecerEstado("Error: " + std::string(err->message));
 		}
 		if (err) {
 			g_error_free(err);
@@ -440,21 +490,22 @@ static void alTaladroGuardado(GObject *src, GAsyncResult *res, gpointer) {
 		return;
 	}
 	const double peck = spinPeck ? gtk_spin_button_get_value(spinPeck) : 0.0;
-	const std::string gcode = generarGCodeTaladroT(estado->resultadoTaladro, opcionesActuales("Taladrado"), peck);
+	const std::string gcode = ExportarGcode::generarGCodeTaladroT(estado->resultadoTaladro, opcionesActuales("Taladrado"), peck);
+	//const std::string gcode = ExportarGcode::
 	std::ofstream out(path);
 	if (out.is_open()) {
 		out << gcode;
 		const size_t lines = std::count(gcode.begin(), gcode.end(), '\n');
-		establecerEstado("✅ Taladrado guardado: " + std::string(path) + " (" + std::to_string(lines) + " lineas)");
+		Interfaz::establecerEstado("✅ Taladrado guardado: " + std::string(path) + " (" + std::to_string(lines) + " lineas)");
 	} else {
-		establecerEstado("❌ Error al escribir: " + std::string(path));
+		Interfaz::establecerEstado("❌ Error al escribir: " + std::string(path));
 	}
 	g_free(path);
 }
 
 void alGenerarGCodeTaladro(GtkButton*, gpointer) {
 	if (!estado->tieneTaladro) {
-		establecerEstado("Cargue un archivo de taladrado (.drl) primero.");
+		Interfaz::establecerEstado("Cargue un archivo de taladrado (.drl) primero.");
 		return;
 	}
 	gtk_check_button_set_active(estado->chkMostrarTaladro, TRUE);
