@@ -1,7 +1,7 @@
 //== == ==
 // Nombre        : GerberViwer3.cpp
 // Autor         : DjSteker
-// Version       : V3.1
+// Version       : V3.2
 // Copyright     :
 // Descripcion   : Visor GTK4 para archivos Gerber RS-274X + Isolation Routing correcto
 //                 • Renderizado Cairo correcto (arcos via polyline, regiones, flashes)
@@ -10,13 +10,13 @@
 //== == ==
 
 #include <gtk/gtk.h>
-#include "interfaz.h"   // EstadoApp, construirUI, estado
+#include "Intefaces/interfaz.h"   // EstadoApp, construirUI, estado
 
 // Definición del puntero global (declarado extern en interfaz.h)
 EstadoApp *estado = nullptr;
 
 static void on_activate(GtkApplication *app, gpointer) {
-	construirUI(app);
+	Interfaz::construirUI(app);
 }
 
 int main(int argc, char *argv[]) {
@@ -32,4 +32,3 @@ int main(int argc, char *argv[]) {
 	g_object_unref(app);
 	return rc;
 }
-
