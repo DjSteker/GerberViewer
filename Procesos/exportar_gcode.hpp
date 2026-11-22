@@ -2,7 +2,7 @@
  * Procesos/exportar_gcode.hpp
  *
  *  Created on: 20 nov 2026
- *      Author: usuario001
+ *      Author: DjSteker
  *
  *  Exportación a GCode de la trayectoria que se ve en pantalla
  *  (MovimientoHerramienta) y del taladrado, con origen en la esquina de la
@@ -17,7 +17,7 @@
 
 #include "drill.h"
 #include "gerber.h"
-#include "../mecanizado.h"
+#include "mecanizado.h"
 
 /// Cambio de coordenadas de la placa al sistema de la máquina.
 struct Transformacion {
@@ -58,10 +58,42 @@ struct EstadisticasGCode {
 	double largoCorte = 0.0;   ///< mm
 };
 
-std::string generarGCodeTrayectoria(const std::vector<MovimientoHerramienta> &mov, const OpcionesGCode &op, EstadisticasGCode *est = nullptr);
+/**
+ * @class ExportarGcode
+ * @brief Exporta trayectorias CNC y operaciones de taladrado a GCode.
+ *
+ * @details
+ * Los métodos no mantienen estado entre llamadas.
+ * Cada exportación utiliza un escritor local con sus propias opciones,
+ * posición de herramienta y estadísticas.
+ */
+class ExportarGcode {
+public:
+	/**
+	 * @brief Genera GCode a partir de una trayectoria calculada.
+	 *
+	 * @param mov Movimientos de la trayectoria.
+	 * @param op Opciones de exportación.
+	 * @param[out] est Estadísticas de la exportación.
+	 *                nullptr si no se necesitan.
+	 * @return Texto del programa GCode.
+	 */
+	static std::string generarGCodeTrayectoria(const std::vector<MovimientoHerramienta> &mov, const OpcionesGCode &op, EstadisticasGCode *est = nullptr);
 
-/// Taladrado: agrupa por broca, ordena por cercanía, ranuras y taladrado por pasos.
-/// @param peck  Profundidad de cada paso (mm); 0 = un solo paso.
-std::string generarGCodeTaladroT(const drill::DrillResult &res, const OpcionesGCode &op, double peck);
+	/**
+	 * @brief Genera GCode para taladros y ranuras.
+	 *
+	 * @details
+	 * Agrupa las operaciones por diámetro y las ordena por cercanía.
+	 * Permite dividir la penetración en varios pasos.
+	 *
+	 * @param res Resultado del parser de taladrado.
+	 * @param op Opciones de exportación.
+	 * @param peck Profundidad de cada paso en milímetros.
+	 *             Cero indica una sola penetración.
+	 * @return Texto del programa GCode o mensaje de error.
+	 */
+	static std::string generarGCodeTaladroT(const drill::DrillResult &res, const OpcionesGCode &op, double peck);
+};
 
 #endif /* PROCESOS_EXPORTAR_GCODE_HPP_ */
