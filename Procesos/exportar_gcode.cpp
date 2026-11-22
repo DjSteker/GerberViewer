@@ -2,7 +2,7 @@
  * Procesos/exportar_gcode.cpp
  *
  *  Created on: 20 nov 2026
- *      Author: usuario001
+ *      Author: DjSteker
  */
 
 #include "exportar_gcode.hpp"
