@@ -7,7 +7,6 @@
 
 // =============================================================================
 //  gerber.cpp  –  Implementación RS-274X Gerber Parser / GCode Generator
-//  Sin dependencias externas, C++17, Linux
 // =============================================================================
 #include "gerber.h"
 
@@ -957,6 +956,45 @@ std::vector<Vec2> rotatePolygon(std::vector<Vec2> poly, double angleRad, const V
 	return out;
 }
 
+// -----------------------------------------------------------------------------
+//  offsetPolygon
+// -----------------------------------------------------------------------------
+
+//std::vector<Vec2> offsetPolygon(const std::vector<Vec2>& poly, double offset) {
+//  const size_t n = poly.size();
+//  if (n < 3) { return poly; }
+//
+//  std::vector<Vec2> result;
+//  result.reserve(n);
+//
+//  for (size_t i = 0; i < n; ++i) {
+//    const size_t prev = (i + n - 1) % n;
+//    const size_t next = (i + 1) % n;
+//
+//    Vec2 d1 = (poly[i] - poly[prev]).normalized();
+//    Vec2 d2 = (poly[next] - poly[i]).normalized();
+//
+//    Vec2 n1 = { -d1.y, d1.x };
+//    Vec2 n2 = { -d2.y, d2.x };
+//
+//    Vec2 bisector = { n1.x + n2.x, n1.y + n2.y };
+//    double len = bisector.length();
+//    if (len < 1e-12) {
+//      result.push_back({ poly[i].x + n1.x * offset, poly[i].y + n1.y * offset });
+//    } else {
+//      bisector.x /= len;
+//      bisector.y /= len;
+//      double dot = n1.x * bisector.x + n1.y * bisector.y;
+//      double scale = (std::abs(dot) > 1e-9) ? offset / dot : offset;
+//      if (std::abs(scale) > std::abs(offset) * 10.0) {
+//        scale = offset * (scale > 0 ? 10.0 : -10.0);
+//      }
+//      result.push_back({ poly[i].x + bisector.x * scale, poly[i].y + bisector.y * scale });
+//    }
+//  }
+//  return result;
+//}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // offsetPolygon mejorado - Mantiene distancia constante
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1004,6 +1042,194 @@ std::vector<gerber::Vec2> offsetPolygon(const std::vector<gerber::Vec2> &poly, d
 	}
 	return result;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// offsetPolygonMejorado - Mantiene distancia constante y evita explosiones
+// ─────────────────────────────────────────────────────────────────────────────
+
+//static std::vector<gerber::Vec2> offsetPolygonMejorado(
+//    const std::vector<gerber::Vec2>& poly,
+//    double offset)
+//{
+//    const size_t n = poly.size();
+//    if (n < 3) return poly;
+//
+//    std::vector<gerber::Vec2> result;
+//    result.reserve(n);
+//
+//    for (size_t i = 0; i < n; ++i) {
+//        const size_t prev = (i + n - 1) % n;
+//        const size_t next = (i + 1) % n;
+//
+//        // Vectores de dirección de los segmentos
+//        gerber::Vec2 d1 = (poly[i] - poly[prev]).normalized();
+//        gerber::Vec2 d2 = (poly[next] - poly[i]).normalized();
+//
+//        // Normales (rotación 90 grados a la izquierda)
+//        gerber::Vec2 n1 = { -d1.y, d1.x };
+//        gerber::Vec2 n2 = { -d2.y, d2.x };
+//
+//        // Bisector de las normales
+//        gerber::Vec2 bisector = { n1.x + n2.x, n1.y + n2.y };
+//        double len = bisector.length();
+//
+//        if (len < 1e-12) {
+//            // Ángulo muy agudo o colineal, usar normal promedio
+//            result.push_back({ poly[i].x + n1.x * offset, poly[i].y + n1.y * offset });
+//        } else {
+//            bisector.x /= len;
+//            bisector.y /= len;
+//
+//            // Escalar para mantener distancia perpendicular constante
+//            // dot = n1 · bisector_unitario
+//            double dot = n1.x * bisector.x + n1.y * bisector.y;
+//            double scale = (std::abs(dot) > 1e-9) ? offset / dot : offset;
+//
+//            // Limitar para evitar explosión en ángulos agudos (evitar scale > 5x)
+//            if (std::abs(scale) > std::abs(offset) * 5.0) {
+//                scale = offset * (scale > 0 ? 5.0 : -5.0);
+//            }
+//
+//            result.push_back({ poly[i].x + bisector.x * scale,
+//                              poly[i].y + bisector.y * scale });
+//        }
+//    }
+//    return result;
+//}
+//
+//// ... (Aquí van tus funciones convexHull y unificarGeometriasGrupo) ...
+//
+//// ─────────────────────────────────────────────────────────────────────────────
+//// unificarGeometriasGrupo - Versión CORREGIDA
+//// ─────────────────────────────────────────────────────────────────────────────
+//static std::vector<gerber::Vec2> unificarGeometriasGrupo(
+//    const std::vector<Info>& grupo,
+//    double radioHerramienta,
+//    double huelgo)
+//{
+//    if (grupo.empty()) return {};
+//
+//    std::vector<std::vector<gerber::Vec2>> buffers;
+//    const double bufferDist = radioHerramienta + huelgo;
+//
+//    for (const auto& info : grupo) {
+//        if (info.poly.size() < 3) continue;
+//
+//        auto polyCCW = info.poly;
+//        asegurarCCW(polyCCW);
+//
+//        // USAR offsetPolygonMejorado aquí
+//        auto buffer = offsetPolygonMejorado(polyCCW, bufferDist);
+//        if (buffer.size() >= 3) {
+//            buffers.push_back(buffer);
+//        }
+//    }
+//
+//    if (buffers.empty()) return {};
+//    if (buffers.size() == 1) return buffers[0];
+//
+//    // ... (Lógica de fusión de buffers igual que antes) ...
+//    // (Mantén la lógica de Union-Find y convexHull que ya tenías)
+//    // Solo asegúrate de que al final devuelva el contorno unificado
+//
+//    // Simplificación para el ejemplo: si hay varios, fusionar en convexHull
+//    std::vector<gerber::Vec2> todosPuntos;
+//    for (const auto& buf : buffers) {
+//        todosPuntos.insert(todosPuntos.end(), buf.begin(), buf.end());
+//    }
+//    return convexHull(todosPuntos);
+//}
+//
+//// ─────────────────────────────────────────────────────────────────────────────
+//// construirTrayectoriaAislamiento - Versión FINAL
+//// ─────────────────────────────────────────────────────────────────────────────
+//std::vector<MovimientoHerramienta> construirTrayectoriaAislamiento(
+//  const gerber::GerberResult& res, const gerber::GCodeConfig& cfg, double huelgo, int maxPasadas) {
+//  std::vector<MovimientoHerramienta> movimientos;
+//  if (!res.ok) { return movimientos; }
+//
+//  const double radioHerramienta = cfg.toolDiameter * 0.5;
+//  // Asegurar que solo sea 1 pasada para aislamiento
+//  const int pasadas = (maxPasadas < 1) ? 1 : 1;
+//  const double tolConexion = std::max(0.05, cfg.toolDiameter * 0.15);
+//
+//  std::vector<std::vector<Info>> gruposInfo;
+//  construirGrupos(res, gruposInfo, tolConexion, radioHerramienta);
+//  if (gruposInfo.empty()) { return movimientos; }
+//
+//  const gerber::Vec2 origen{ 0, 0 };
+//  gerber::Vec2 actual = origen;
+//  bool herramientaAbajo = false;
+//
+//  for (size_t g = 0; g < gruposInfo.size(); ++g) {
+//
+//    // UNIFICAR
+//    auto contornoUnificado = unificarGeometriasGrupo(gruposInfo[g], radioHerramienta, huelgo);
+//    if (contornoUnificado.size() < 3) {continue;}
+//
+//    asegurarCCW(contornoUnificado);
+//
+//    // Offset final con la función MEJORADA
+//    const double distAislamiento = radioHerramienta + huelgo;
+//    auto contorno = offsetPolygonMejorado(contornoUnificado, distAislamiento);
+//
+//    if (contorno.size() < 3) continue;
+//
+//    // Cerrar contorno
+//    if (d2(contorno.front(), contorno.back()) > 1e-9) {
+//      contorno.push_back(contorno.front());
+//    }
+//
+//    // Densificar
+//    {
+//      std::vector<gerber::Vec2> denso;
+//      const double rd = 0.03;
+//      denso.reserve(contorno.size() * 15);
+//      for (size_t i = 0; i + 1 < contorno.size(); ++i) {
+//        const auto& p0 = contorno[i];
+//        const auto& p1 = contorno[i + 1];
+//        double len = std::hypot(p1.x - p0.x, p1.y - p0.y);
+//        int pasos = std::max(1, (int)std::ceil(len / rd));
+//        for (int p = 0; p <= pasos; ++p) {
+//          double t = (double)p / pasos;
+//          denso.push_back({ p0.x + (p1.x - p0.x) * t, p0.y + (p1.y - p0.y) * t });
+//        }
+//      }
+//      contorno = std::move(denso);
+//    }
+//
+//    // Generar movimientos
+//    if (d2(actual, contorno[0]) > 1e-6) {
+//      if (herramientaAbajo) {
+//        movimientos.push_back({ TipoMovimiento::Subir, actual, actual });
+//        herramientaAbajo = false;
+//      }
+//      movimientos.push_back({ TipoMovimiento::Viaje, actual, contorno[0] });
+//      actual = contorno[0];
+//    }
+//
+//    if (!herramientaAbajo) {
+//      movimientos.push_back({ TipoMovimiento::Bajar, actual, actual });
+//      herramientaAbajo = true;
+//    }
+//
+//    for (size_t i = 1; i < contorno.size(); ++i) {
+//      movimientos.push_back({ TipoMovimiento::Corte, actual, contorno[i] });
+//      actual = contorno[i];
+//    }
+//
+//    if (herramientaAbajo) {
+//      movimientos.push_back({ TipoMovimiento::Subir, actual, actual });
+//      herramientaAbajo = false;
+//    }
+//  }
+//
+//  if (d2(actual, origen) > 1e-6) {
+//    movimientos.push_back({ TipoMovimiento::Viaje, actual, origen });
+//  }
+//
+//  return movimientos;
+//}
 
 // =============================================================================
 //  flashToPolygon
@@ -1550,5 +1776,3 @@ std::string GCodeGenerator::generateIsolation(const GerberResult &res, double cl
 	footer();
 	return out_;
 }
-
-
