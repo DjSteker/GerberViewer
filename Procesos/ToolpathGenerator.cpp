@@ -202,13 +202,14 @@ bool ToolpathGenerator::isPointSafe(const Vec2 &point, const std::vector<std::ve
 
 	// Verificar que no está demasiado cerca del cobre (dark)
 	for (const auto &poly : copperPolys) {
-		double dist = verificacion::distanciaFirmaPoligono(point, poly);
+		double dist = verificacion::VerificacionSegura::distanciaFirmaPoligono(point, poly);
+
 		if (dist < radius) {
 			return false;}
 	}
 	// Verificar que no invade zonas clear
 	for (const auto &clearPoly : clearPolys) {
-		double dist = verificacion::distanciaFirmaPoligono(point, clearPoly);
+		double dist = verificacion::VerificacionSegura::distanciaFirmaPoligono(point, clearPoly);
 		if (dist < radius) {
 			return false;}
 	}
