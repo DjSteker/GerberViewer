@@ -14,8 +14,8 @@
 #include "gerber.h"
 
 class Unidades {
-
-	inline void convertirAMilimetros(gerber::GerberResult &r) {
+public:
+	static void convertirAMilimetros(gerber::GerberResult &r) {
 		if (r.unit != "IN") {
 			return;
 		}
@@ -63,7 +63,7 @@ class Unidades {
 		r.unit = "MM";
 	}
 
-	inline void convertirAMilimetros(drill::DrillResult &r) {
+	static void convertirAMilimetros(drill::DrillResult &r) {
 		if (r.unit != "IN") {
 			return;
 		}
